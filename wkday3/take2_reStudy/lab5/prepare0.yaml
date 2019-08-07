@@ -1,0 +1,645 @@
+Description: 'DevOps Engineering on AWS - Lab 5: Base lab stack for AWS OpsWorks for Chef Automate.
+              Currently supported regions: us-west-2, us-east-1, eu-west-1'
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair
+    Type: String
+Mappings:
+  AWSRegionToAMI:
+    ## Updated May 3rd, 2017
+    'ca-central-1':
+      AMI: 'ami-0bd66a6f'
+    'us-east-1':
+      AMI: 'ami-c58c1dd3'
+    'us-east-2':
+      AMI: 'ami-4191b524'
+    'us-west-1':
+      AMI: 'ami-7a85a01a'
+    'us-west-2':
+      AMI: 'ami-4836a428'
+    'ap-south-1':
+      AMI: 'ami-52c7b43d'
+    'eu-west-2':
+      AMI: 'ami-b6daced2'
+    'eu-west-1':
+      AMI: 'ami-01ccc867'
+    'ap-northeast-2':
+      AMI: 'ami-9d15c7f3'
+    'ap-northeast-1':
+      AMI: 'ami-923d12f5'
+    'sa-east-1':
+      AMI: 'ami-37cfad5b'
+    'ap-southeast-1':
+      AMI: 'ami-fc5ae39f'
+    'ap-southeast-2':
+      AMI: 'ami-162c2575'
+    'eu-central-1':
+      AMI: 'ami-b968bad6'
+Resources:
+
+###########################################################
+# start of networking section
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      Tags:
+        - Key: Name
+          Value: lab-vpc
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: lab-igw
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      CidrBlock: 10.1.1.0/24
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: lab-subnet-public1
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      CidrBlock: 10.1.2.0/24
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+        - Key: Name
+          Value: lab-subnet-public2
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab-routetable-public
+  PublicDefaultRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: AttachGateway
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+  PublicRouteAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+  PublicRouteAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      CidrBlock: 10.1.3.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab-subnet-private1
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      CidrBlock: 10.1.4.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab-subnet-private2
+  PrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab-routetable-private
+  PrivateRouteAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+  PrivateRouteAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+  PrivateRouteTableRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NATInstance
+
+# end network section
+###########################################################
+
+###########################################################
+# NAT Instance for outbound access from private subnets
+
+  NATInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: AttachGateway
+    CreationPolicy:
+      ResourceSignal:
+        Count: '1'
+        Timeout: PT15M
+    Properties:
+      ImageId: !FindInMap
+        - AWSRegionToAMI
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: t2.micro
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: 'true'
+          SubnetId: !Ref PublicSubnet1
+          GroupSet:
+            - !Ref NATSecurityGroup
+      SourceDestCheck: 'false'
+      Tags:
+        - Key: Name
+          Value: NAT Server
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -ex
+          yum -y update
+          echo 1 > /proc/sys/net/ipv4/ip_forward
+          echo 0 > /proc/sys/net/ipv4/conf/eth0/send_redirects
+          /sbin/iptables -t nat -A POSTROUTING -o eth0 -s 0.0.0.0/0 -j MASQUERADE
+          /sbin/iptables-save > /etc/sysconfig/iptables
+          mkdir -p /etc/sysctl.d/
+          cat <<EOF > /etc/sysctl.d/nat.conf
+          net.ipv4.ip_forward = 1
+          net.ipv4.conf.eth0.send_redirects = 0
+          EOF
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --region ${AWS::Region} --resource NATInstance
+
+  NATSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable internal access to the NAT device
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: NATSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: '0'
+          ToPort: '1024'
+          CidrIp: '10.1.0.0/16'
+
+# IAM Role for command host
+  RootRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                [ec2.amazonaws.com]
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CommandHost
+          PolicyDocument:
+            Statement:
+              - Action:
+                  - 'rds:*'
+                  - 'opsworks:*'
+                  - 'opsworks-cm:*'
+                  - 'ec2:*'
+                  - 'elasticloadbalancing:*'
+                  - 'cloudformation:*'
+                  - 'cloudwatch:*'
+                  - 'iam:*'
+                  - 's3:*'
+                  - 'events:*'
+                  - 'autoscaling:*'
+                  - 'lambda:*'
+                  - 'sns:*'
+                  - 'ssm:*'
+                  - 'iam:PassRole'
+                  - "iam:GetRole"
+                  - "iam:ListRoles"
+                Resource:
+                  - '*'
+                Effect: Allow
+  RootInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref RootRole
+
+# EC2 instance designated as command host
+  CommandHost:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: AttachGateway
+    CreationPolicy:
+      ResourceSignal:
+        Count: '1'
+        Timeout: PT25M
+    Properties:
+      ImageId: !FindInMap
+        - AWSRegionToAMI
+        - !Ref 'AWS::Region'
+        - AMI
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet2
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !Ref CommandHostSecurityGroup
+      Tags:
+        - Key: Name
+          Value: CommandHost
+      IamInstanceProfile: !Ref RootInstanceProfile
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            yum update -y
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource CommandHost --region ${AWS::Region}
+
+# Security group allowing inbound access to command host
+  CommandHostSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable external access to the CommandHost
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: CommandHostSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+
+#  IAM Role for disassociating nodes with Lambda
+  DisassociateNodeIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName: OpsWorksDisassociate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - "opsworks-cm:DisassociateNode"
+                  - "opsworks-cm:DescribeNodeAssociationStatus"
+                Resource: "*"
+        -
+          PolicyName: LambdaPutLogEvents
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "arn:aws:logs:*:*:*"
+
+###########################################################
+#  IAM Role for associating and disassociating nodes;
+#  This role is assigned to the Opsworks for Chef Automate instance
+  OpsWorksCmEc2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+        - "arn:aws:iam::aws:policy/AWSOpsWorksCMInstanceProfileRole"
+
+  OpsWorksCmEc2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: OpsWorksCmEc2IAMRole
+
+###########################################################
+#  IAM Role for OpsWorks service using AWS managed IAM policy
+  OpsWorksCmServiceIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "opsworks-cm.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSOpsWorksCMServiceRole
+      Policies:
+        -
+          PolicyName: OpsWorksCMIAMPassRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - "iam:PassRole"
+                Resource: "*"
+
+#########################################################
+# Security group for Chef Server
+  ChefServerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable web, ssh, and git ssh access to Chef Server
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ChefServerSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '10.0.0.0/8'
+        - IpProtocol: '-1'
+          FromPort: '8989'
+          ToPort: '8989'
+          CidrIp: '10.0.0.0/8'
+        - IpProtocol: '-1'
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+
+##########################################################
+# Elastic Load balancer for sample web app
+  WebAppELB:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      Subnets:
+      - Ref: PublicSubnet1
+      - Ref: PublicSubnet2
+      Instances:
+      - Ref: SingleWebInstance
+      CrossZone: "true"
+      SecurityGroups:
+      - Ref: LoadBalancerSecurityGroup
+      Listeners:
+      - LoadBalancerPort: '80'
+        InstancePort: '80'
+        Protocol: HTTP
+      HealthCheck:
+        Target: HTTP:80/
+        HealthyThreshold: '3'
+        UnhealthyThreshold: '5'
+        Interval: '30'
+        Timeout: '5'
+
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound HTTP traffic to reach the Elastic Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebAppElbSecurityGroup
+
+# Single web instances for initial app deployment
+  SingleWebInstance:
+    Type: "AWS::EC2::Instance"
+    DependsOn: NATInstance
+    CreationPolicy:
+      ResourceSignal:
+        Count: '1'
+        Timeout: PT15M
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+            VolumeSize: "10"
+      DisableApiTermination: "false"
+      EbsOptimized: "false"
+      ImageId: !FindInMap [AWSRegionToAMI, !Ref 'AWS::Region', AMI]
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - Ref: WebServerSecurityGroup
+      SubnetId:
+        Ref: PrivateSubnet1
+      Tags:
+        - Key: Name
+          Value: WebServer01
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -ex
+          yum install -y httpd
+          chkconfig httpd on
+          service httpd start
+          echo '<h2>hello, world!</h2>' >> /var/www/html/index.html
+          INSTANCEID=$(curl -s -m 60 http://169.254.169.254/latest/meta-data/instance-id)
+          echo >> /var/www/html/index.html
+          echo "<h3>My instance ID is:" $INSTANCEID "</h3>" >> /var/www/html/index.html
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource SingleWebInstance --region ${AWS::Region}
+
+  WebServerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Inbound HTTP access from the Elastic Load Balancer
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        SourceSecurityGroupId:
+          !Ref LoadBalancerSecurityGroup
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      VpcId:
+        !Ref VPC
+      Tags:
+        - Key: Name
+          Value: WebServerSecurityGroup
+
+##############################################################
+# RDS Database cluster section
+
+  DatabaseCluster:
+      Type: AWS::RDS::DBCluster
+      DependsOn: SingleWebInstance
+      Properties:
+          Engine: aurora
+          MasterUsername: 'dbadmin'
+          MasterUserPassword: 'dbpassw0rd'
+          DatabaseName: 'SampleAppDB'
+          BackupRetentionPeriod: 1
+          PreferredBackupWindow: 02:00-03:00
+          PreferredMaintenanceWindow: mon:03:00-mon:04:00
+          DBSubnetGroupName:
+            Ref: DatabaseSubnetGroup
+          VpcSecurityGroupIds:
+            - Ref: DBSecurityGroup
+  DatabasePrimaryInstance:
+      Type: AWS::RDS::DBInstance
+      DeletionPolicy: Delete
+      Properties:
+          Engine: aurora
+          DBClusterIdentifier:
+            Ref: DatabaseCluster
+          DBInstanceClass: 'db.t2.medium'
+          DBSubnetGroupName:
+            Ref: DatabaseSubnetGroup
+  DatabaseReplicaInstance:
+      Type: AWS::RDS::DBInstance
+      DeletionPolicy: Delete
+      Properties:
+          Engine: aurora
+          DBClusterIdentifier:
+            Ref: DatabaseCluster
+          DBInstanceClass: 'db.t2.medium'
+          DBSubnetGroupName:
+            Ref: DatabaseSubnetGroup
+  DatabaseSubnetGroup:
+      Type: AWS::RDS::DBSubnetGroup
+      Properties:
+          DBSubnetGroupDescription: CloudFormation managed DB subnet group.
+          SubnetIds:
+            - Ref: PrivateSubnet1
+            - Ref: PrivateSubnet2
+
+  DBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable inbound access for RDS Aurora
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: DBSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: 10.1.0.0/16
+
+# end RDS section
+###############################################################
+
+# Information to send to stack outputs and CloudFormation exports
+Outputs:
+  CommandHostPublicIp:
+    Description: 'CommandHost public ip address'
+    Value: !GetAtt CommandHost.PublicIp
+    Export:
+      Name: !Sub '${AWS::StackName}-CommandHostPublicIp'
+  Region:
+    Value: !Ref 'AWS::Region'
+    Description: Region used for the lab
+  KeyName:
+    Value: !Ref 'KeyName'
+    Description: EC2 Key Pair Name
+  ChefServerSecurityGroup:
+    Description: Security group to be used by the Chef Server'
+    Value: !Ref ChefServerSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-ChefServerSecurityGroup'
+  ChefServerSubnetId:
+    Description: Subnet ID into which the Chef Server will be provisioned'
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnet1'
+  WebsiteUrl:
+    Description: 'the HTTP endpoint for our elastic load balancer.'
+    Value: !Sub
+      - http://${ElbDns}
+      - {ElbDns: !GetAtt WebAppELB.DNSName}
+    Export:
+      Name: !Sub '${AWS::StackName}-SampleAppUrl'
+  Ec2InstanceProfileArn:
+    Description: 'The ARN for the OpsWorks EC2 Instance IAM Instance Profile'
+    Value: !GetAtt OpsWorksCmEc2InstanceProfile.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-Ec2IamRoleArn'
+  OpsWorksCmServiceIAMRole:
+    Description: 'The ARN for the OpsWorks Service IAM Role'
+    Value: !GetAtt OpsWorksCmServiceIAMRole.Arn
+  AuroraDbEndpoint:
+    Description: 'RDS Aurora Database instance endpoint'
+    Value: !GetAtt DatabaseCluster.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-AuroraEndpointAddress'
+  WebServerPrivateIp:
+    Description: 'The private IP address for the single web server'
+    Value: !GetAtt SingleWebInstance.PrivateIp
+  WebServerSecurityGroup:
+    Description: The security group ID to be used for all web servers in the application.
+    Value: !GetAtt WebServerSecurityGroup.GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-WebServerSecurityGroup'
+  PrivateSubnet1:
+    Description: 'Private Subnet 1'
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnet1'
+  PrivateSubnet2:
+    Description: 'Private Subnet 2'
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnet2'
+  WebAppELB:
+    Description: 'The Elastic Load Balancer for the web application'
+    Value: !Ref WebAppELB
+    Export:
+      Name: !Sub '${AWS::StackName}-WebAppELB'

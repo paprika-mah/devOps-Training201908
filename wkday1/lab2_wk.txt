@@ -1,0 +1,102 @@
+https://aws.qwiklabs.com/my_learning
+
+------------------------------------------------------------------------------------------------------------------------
+|                                                    DescribeStacks                                                    |
++--------------------+-------------------------------------------------------------------------------------------------+
+|  ConfigRoleARN     |  arn:aws:iam::161943791810:role/ConfigRole                                                      |
+|  LambdaRoleARN     |  arn:aws:iam::161943791810:role/LambdaRole                                                      |
+|  ConfigS3BucketName|  qls-2266788-08dbbe21c921d46d-configbucket-1gvp7fuj2i13h                                        |
+|  ConfigSNSTopic    |  arn:aws:sns:us-west-2:161943791810:qls-2266788-08dbbe21c921d46d-ConfigSNSTopic-1TGJV920D60N1   |
+|  AccountNumber     |  161943791810                                                                                   |
++--------------------+-------------------------------------------------------------------------------------------------+
+
+
+
+aws configservice subscribe --s3-bucket qls-2266788-08dbbe21c921d46d-configbucket-1gvp7fuj2i13h --sns-topic arn:aws:sns:us-west-2:161943791810:qls-2266788-08dbbe21c921d46d-ConfigSNSTopic-1TGJV920D60N1 --iam-role arn:aws:iam::161943791810:role/ConfigRole
+
+
+
+aws configservice put-configuration-recorder --configuration-recorder name=default,roleARN=arn:aws:iam::161943791810:role/ConfigRole  --recording-group allSupported=true,includeGlobalResourceTypes=true
+
+
+
+
+aws lambda create-function --function-name ConfigRule-IAM-PowerActions --runtime python2.7 \
+--role arn:aws:iam::161943791810:role/LambdaRole  --zip-file fileb://Lambda-iam-policy-validate-powerfulActions.zip --handler lambda_function.lambda_handler
+
+aws lambda create-function --function-name ConfigRule-IAM-RestrictedRegions --runtime python2.7 --role arn:aws:iam::161943791810:role/LambdaRole \
+--zip-file fileb://Lambda-iam-policy-validate-restrictedRegions.zip --handler lambda_function.lambda_handler
+
+
+
+-------------------------------------------------------------------------------------------------------------------------
+|                                                     ListFunctions                                                     |
++-----------------------------------+-----------------------------------------------------------------------------------+
+|  ConfigRule-IAM-PowerActions      |  arn:aws:lambda:us-west-2:161943791810:function:ConfigRule-IAM-PowerActions       |
+|  ConfigRule-IAM-RestrictedRegions |  arn:aws:lambda:us-west-2:161943791810:function:ConfigRule-IAM-RestrictedRegions  |
++-----------------------------------+-----------------------------------------------------------------------------------+
+
+
+
+
+aws lambda add-permission --function-name ConfigRule-IAM-PowerActions --action lambda:InvokeFunction \
+--principal config.amazonaws.com --source-account 161943791810 --statement-id 1
+
+
+aws lambda add-permission --function-name ConfigRule-IAM-RestrictedRegions \
+--action lambda:InvokeFunction --principal config.amazonaws.com --source-account 161943791810 --statement-id 1
+
+
+
+sed -i -- "s|LAMBDA-ARN|arn:aws:lambda:us-west-2:161943791810:function:ConfigRule-IAM-PowerActions|g" ./config-rule-PowerfulActions.json
+
+
+
+
+sed -i -- "s|LAMBDA-ARN|arn:aws:lambda:us-west-2:161943791810:function:ConfigRule-IAM-RestrictedRegions|g" ./config-rule-RegionBound.json
+
+
+
+
+
+
+aws configservice get-compliance-details-by-resource --resource-type AWS::IAM::Policy \
+--resource-id ANPASLNE2FDBCUYVWLWSK,ANPASLNE2FDBMNTJLKC4S --compliance-types NON_COMPLIANT \
+--query EvaluationResults[].[Annotation,ComplianceType]
+
+aws configservice get-compliance-details-by-resource --resource-type AWS::IAM::Policy \
+--resource-id ANPASLNE2FDBMNTJLKC4S --compliance-types NON_COMPLIANT \
+--query EvaluationResults[].[Annotation,ComplianceType]
+
+[
+    [
+        "Entity: arn:aws:iam::161943791810:policy/qls-2266788-08dbbe21c921d46d-DevRolePolicy-NPK4LCHPDOYA is NON_COMPLIANT for validation of restricted EC2 region.",
+        "NON_COMPLIANT"
+    ]
+]
+
+
+
+[
+    [
+        "Entity: arn:aws:iam::161943791810:policy/qls-2266788-08dbbe21c921d46d-AdminRolePolicy-11AV2W5ZNMV44 is NON_COMPLIANT for validation of restricted EC2 region.",
+        "NON_COMPLIANT"
+    ],
+    [
+        "Entity: arn:aws:iam::161943791810:policy/qls-2266788-08dbbe21c921d46d-AdminRolePolicy-11AV2W5ZNMV44 is NON_COMPLIANT for validation of powerful actions access.",
+        "NON_COMPLIANT"
+    ]
+]
+
+
+
+
+aws iam get-policy --policy-arn  arn:aws:iam::161943791810:policy/qls-2266788-08dbbe21c921d46d-DevRolePolicy-NPK4LCHPDOYA
+
+
+
+
+
+
+aws iam get-policy-version --policy-arn arn:aws:iam::161943791810:policy/qls-2266788-08dbbe21c921d46d-DevRolePolicy-NPK4LCHPDOYA \
+--version-id v1

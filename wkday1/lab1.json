@@ -1,0 +1,475 @@
+
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Template to build the Network Tier for Lab 1",
+  "Parameters": {
+    "VPCCIDR": {
+      "Description": "CIDR Block for VPC",
+      "Type": "String"
+    },
+    "PUBSUBNET1": {
+      "Description": "Public Subnet A",
+      "Type": "String"
+    },
+    "PUBSUBNET2": {
+      "Description": "Public Subnet B",
+      "Type": "String"
+    },
+    "PRIVATESUBNET1": {
+      "Description": "Private Subnet A",
+      "Type": "String"
+    },
+    "PRIVATESUBNET2": {
+      "Description": "Private Subnet B",
+      "Type": "String"
+    },
+    "KeyName": {
+      "Type": "String",
+      "Description": "Keyname for the keypair that Qwiklab will use to launch EC2 instances"
+    },
+    "QwiklabLocale": {
+      "Default": "en",
+      "Description": "The locale of the student will be passed in to this parameter via the Qwiklab platform (via the student's browser)",
+      "Type": "String"
+    }
+  },
+  "Mappings": {
+     "AmazonLinuxAMI": {
+		 	"us-east-1" : {
+				"AMI" : "ami-08111162"
+			},
+			"us-east-2" : {
+				"AMI" : "ami-06547163"
+			},
+    		"us-west-1" : {
+    		  "AMI" : "ami-1b0f7d7b"
+    		},
+    		"us-west-2" : {
+    		  "AMI" : "ami-f0091d91"
+    		},
+    		"eu-west-1" : {
+    		  "AMI" : "ami-31328842"
+    		},
+    		"eu-central-1" : {
+    		  "AMI" : "ami-e2df388d"
+    		},
+    		"ap-northeast-1" : {
+    		  "AMI" : "ami-f80e0596"
+    		},
+    		"ap-northeast-2" : {
+    		  "AMI" : "ami-6598510b"
+    		},
+    		"ap-southeast-1" : {
+    		  "AMI" : "ami-c9b572aa"
+    		},
+    		"ap-southeast-2" : {
+    		  "AMI" : "ami-f2210191"
+    		},
+    		"sa-east-1" : {
+    		  "AMI" : "ami-1e159872"
+    		}
+      }
+    },
+  "Resources": {
+    "CommandHostRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version" : "2012-10-17",
+          "Statement": [ {
+             "Effect": "Allow",
+              "Principal": {
+                "Service": [ "ec2.amazonaws.com" ]
+              },
+                "Action": [ "sts:AssumeRole" ]
+             } ]
+          },
+        "Path": "/",
+        "Policies": [ {
+           "PolicyName": "CommandHost-Policy",
+            "PolicyDocument": {
+              "Version" : "2012-10-17",
+              "Statement": [ {
+                "Effect": "Allow",
+                "Action": ["ec2:Describe*",
+                           "ec2:List*",
+                           "vpc:Describe*",
+                           "vpc:List*",
+                           "dynamodb:Describe*",
+                           "dynamodb:List*",
+                           "autoscaling:Describe*",
+                           "autoscaling:List*",
+                           "iam:List*",
+                           "iam:Describe*",
+                           "iam:Get*",
+                           "elasticbeanstalk:Describe*",
+                           "elasticbeanstalk:List*",
+                           "elasticbeanstalk:Get*",
+                           "opsworks:Describe*",
+                           "opsworks:List*",
+                           "opsworks:Get*",
+                           "codedeploy:Describe*",
+                           "codedeploy:List*",
+                           "codedeploy:Get*",
+                           "cloudformation:Describe*",
+                           "cloudformation:List*",
+                           "cloudformation:Get*"
+                         ],
+                "Resource": "*"
+                } ]
+              }
+            }
+          ]
+        }
+      },
+    "CommandHostInstProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Roles": [ {"Ref": "CommandHostRole"} ],
+        "InstanceProfileName": "CommandHostInstanceProfile"
+      }
+    },
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": {"Ref": "VPCCIDR"},
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true",
+        "Tags": [
+          {
+            "Key": "VPC",
+            "Value": "DevOps "
+          },
+          {
+            "Key": "Name",
+            "Value": "CF Lab Env"
+          }
+        ]
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "DependsOn": "VPC",
+	  "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "DevOps VPC IGW"
+          }
+        ]
+	  }
+    },
+    "AttachGateway": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "DependsOn": ["VPC", "InternetGateway"],
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "InternetGatewayId": {"Ref": "InternetGateway"}
+      }
+    },
+    "NatGWEIP": {
+      "Type" : "AWS::EC2::EIP",
+      "DependsOn": "VPC",
+      "Properties" : {
+        "Domain" : "VPC"
+      }
+    },
+    "NatGateway" : {
+      "Type" : "AWS::EC2::NatGateway",
+      "DependsOn" : ["NatGWEIP", "VPC", "PrivateSubnet1"],
+      "Properties" : {
+        "AllocationId" : { "Fn::GetAtt": ["NatGWEIP", "AllocationId"]},
+        "SubnetId" : { "Ref" : "PublicSubnet1"}
+      }
+    },
+    "PublicSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "DependsOn": "VPC",
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "CidrBlock": {"Ref": "PUBSUBNET1"},
+		"MapPublicIpOnLaunch" : "true",
+        "AvailabilityZone": {
+          "Fn::Select": [
+            "0",
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Public Subnet - A"
+          }
+        ]
+      }
+    },
+    "PublicSubnet2": {
+      "Type": "AWS::EC2::Subnet",
+      "DependsOn": "VPC",
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "CidrBlock": {"Ref": "PUBSUBNET2"},
+		"MapPublicIpOnLaunch" : "true",
+        "AvailabilityZone": {
+          "Fn::Select": [
+            "1",
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Public Subnet - B"
+          }
+        ]
+      }
+    },
+    "PrivateSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "DependsOn": "VPC",
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "CidrBlock": {"Ref": "PRIVATESUBNET1"},
+        "AvailabilityZone": {
+          "Fn::Select": [
+            "0",
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Private Subnet - A"
+          }
+        ]
+      }
+    },
+    "PrivateSubnet2": {
+      "Type": "AWS::EC2::Subnet",
+      "DependsOn": "VPC",
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "CidrBlock": {"Ref": "PRIVATESUBNET2"},
+        "AvailabilityZone": {
+          "Fn::Select": [
+            "1",
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Private Subnet - B"
+          }
+        ]
+      }
+    },
+    "PublicRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "DependsOn": ["VPC", "AttachGateway"],
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Public Routing Table"
+          }
+        ]
+      }
+    },
+    "PrivateRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "DependsOn": ["VPC", "AttachGateway"],
+      "Properties": {
+        "VpcId": {"Ref": "VPC"},
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Private Rotuing Table"
+          }
+        ]
+      }
+    },
+    "PublicRouteIGW": {
+      "Type": "AWS::EC2::Route",
+      "DependsOn": ["PublicRouteTable", "InternetGateway"],
+      "Properties": {
+        "RouteTableId": {"Ref": "PublicRouteTable"},
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {"Ref": "InternetGateway"}
+      }
+    },
+    "PrivateRouteTableNAT": {
+      "Type": "AWS::EC2::Route",
+      "DependsOn": ["PrivateRouteTable", "NatGateway", "NatGWEIP"],
+      "Properties": {
+        "RouteTableId": {"Ref": "PrivateRouteTable"},
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {"Ref": "NatGateway"}
+      }
+    },
+    "PublicRouteTableAssociationA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "DependsOn": ["PublicSubnet1", "PublicRouteIGW"],
+      "Properties": {
+        "SubnetId": {"Ref": "PublicSubnet1"},
+        "RouteTableId": {"Ref": "PublicRouteTable"}
+      }
+    },
+    "PublicRouteTableAssociationB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "DependsOn": ["PublicSubnet2", "PublicRouteIGW"],
+      "Properties": {
+        "SubnetId": {"Ref": "PublicSubnet2"},
+        "RouteTableId": {"Ref": "PublicRouteTable"}
+      }
+    },
+    "PrivateRouteTableAssociationA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "DependsOn": ["PrivateSubnet1"],
+      "Properties": {
+        "SubnetId": {"Ref": "PrivateSubnet1"},
+        "RouteTableId": {"Ref": "PrivateRouteTable"}
+      }
+    },
+    "PrivateRouteTableAssociationB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "DependsOn": ["PrivateSubnet2"],
+      "Properties": {
+        "SubnetId": {"Ref": "PrivateSubnet2"},
+        "RouteTableId": {"Ref": "PrivateRouteTable"}
+      }
+    },
+    "CommandHostSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "DependsOn": "AttachGateway",
+      "Properties" : {
+         "GroupDescription" : "Security Group for CommandHost  to enable SSH and http access",
+         "VpcId" : {"Ref": "VPC"},
+         "Tags": [
+                {
+                  "Key": "Name",
+                  "Value": "Command Host SG"
+                }
+              ],
+         "SecurityGroupEgress": [
+               {
+                    "IpProtocol": "tcp",
+                    "FromPort": "0",
+                    "ToPort": "65535",
+                    "CidrIp": "0.0.0.0/0"
+                },
+                {
+                    "IpProtocol": "udp",
+                    "FromPort": "0",
+                    "ToPort": "65535",
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ],
+            "SecurityGroupIngress": [
+               {
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": "0.0.0.0/0"
+                },
+               {
+                    "IpProtocol": "tcp",
+                    "FromPort": "80",
+                    "ToPort": "80",
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ]
+			}
+        },
+	"CommandHost": {
+            "Type": "AWS::EC2::Instance",
+            "DependsOn": ["PublicSubnet1", "VPC", "CommandHostSecurityGroup"],
+            "Properties": {
+                "IamInstanceProfile": { "Ref": "CommandHostInstProfile"},
+                "KeyName": {"Ref": "KeyName"},
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "AmazonLinuxAMI",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMI"
+                    ]
+                },
+                "InstanceType": "t2.micro",
+                "NetworkInterfaces": [
+                    {
+                        "DeviceIndex": "0",
+                        "AssociatePublicIpAddress": "true",
+                        "SubnetId": { "Ref": "PublicSubnet1" },
+                        "GroupSet": [{ "Ref": "CommandHostSecurityGroup" }]
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "CommandHost"
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash -ex \n",
+								"yum update -y \n",
+								"yum install -y aws-cli \n",
+                "yum install -y docker git \n",
+                "usermod -a -G docker ec2-user \n",
+                "service docker start \n"
+							   ]
+                        ]
+                    }
+                }
+        }
+    }
+},
+  "Outputs": {
+		"KeyPair" : {
+			"Value" : {"Ref" : "KeyName"},
+			"Description" : "The Keypair Used to Secure the Command Host and the Source DB"
+		},
+		"CommandHost" : {
+			"Value" : {"Fn::GetAtt" : [ "CommandHost", "PublicIp" ] },
+			"Description" : "Public IP address of the Command Host"
+		},
+		"Region" : {
+			"Value" : {"Ref": "AWS::Region"},
+			"Description" : "Region used for the lab"
+		},
+		"VPCId" : {
+			"Value" : {"Ref" : "VPC"},
+			"Description" : "VPC Resource ID"
+		},
+		"PubSubA" : {
+			"Value" : { "Ref": "PublicSubnet1" },
+			"Description" : "Public Subnet A Resource ID "
+		},
+		"PubSubB" : {
+			"Value" : { "Ref": "PublicSubnet2" },
+			"Description" : "Public Subnet B Resource ID "
+		},
+		"PrivSubA" : {
+			"Value" : { "Ref": "PrivateSubnet1" },
+			"Description" : "Private Subnet A Resource ID - App Servers"
+		},
+		"PrivSubB" : {
+			"Value" : { "Ref": "PrivateSubnet2" },
+			"Description" : "Private Subnet B Resource ID - App Servers"
+		}
+  }
+}

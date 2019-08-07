@@ -1,0 +1,352 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Template to build the base for Lab 2 - automated IAM policy validation in the DevOps ILT
+Parameters:
+  KeyName:
+    Type: String
+    Description: Keyname for the keypair that Qwiklab will use to launch EC2 instances
+  QwiklabLocale:
+    Default: en
+    Description: The locale of the student will be passed in to this parameter via the Qwiklab platform (via the student's browser)
+    Type: String
+  VPCCIDR:
+    Description: CIDR Block for VPC
+    Type: String
+    Default: 10.96.10.0/16
+  PUBSUBNET:
+    Description: Public Subnet A
+    Type: String
+    Default: 10.96.10.0/24
+  S3PathPrefix:
+    Type: String
+    Description: "The path prefix where lab resources are stored (Leading and trailing slash required!)"
+    Default: "courses/ILT-TF-200-DEVOPS/v2.4.2/lab-2-DevSec"
+Mappings:
+  AmazonLinuxAMI:
+    us-east-1:
+      AMI: ami-08111162
+    us-east-2:
+      AMI: ami-06547163
+    us-west-1:
+      AMI: ami-1b0f7d7b
+    us-west-2:
+      AMI: ami-f0091d91
+    eu-west-1:
+      AMI: ami-31328842
+    eu-central-1:
+      AMI: ami-e2df388d
+    ap-northeast-1:
+      AMI: ami-f80e0596
+    ap-northeast-2:
+      AMI: ami-6598510b
+    ap-southeast-1:
+      AMI: ami-c9b572aa
+    ap-southeast-2:
+      AMI: ami-f2210191
+    sa-east-1:
+      AMI: ami-1e159872
+Resources:
+  CommandHostInstProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'CommandHostRole']
+  CommandHostRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: lab-6-commandhost
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['config:*',
+                     'lambda:*',
+                     'iam:List*',
+                     'iam:Describe*',
+                     'iam:PassRole',
+                     'iam:GetPolicy',
+                     'iam:Get*',
+                     'iam:GetPolicyVersion',
+                     'cloudformation:Describe*',
+                     'cloudformation:List*',]
+            Resource: '*'
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSConfigRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service: "config.amazonaws.com"
+          Action:
+            - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "ConfigCustomRule"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+            - Effect: "Allow"
+              Action: ["lambda:*"]
+              Resource: "*"
+      RoleName: ConfigRole
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service: "lambda.amazonaws.com"
+          Action:
+            - "sts:AssumeRole"
+      Policies:
+        - PolicyName: LambdaRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+            - Effect: "Allow"
+              Action: ["config:GetResourceConfigHistory",
+                       "config:PutEvaluations",
+                       "config:StartConfigRulesEvaluation",
+                       "iam:GetPolicy",
+                       "iam:GetPolicyVersion",
+                       "iam:SimulateCustomPolicy",
+                       "iam:ListEntitiesforPolicy",
+                       "iam:GetGroup",
+                       "logs:*",
+                       "s3:GetBucketPolicy",
+                       "iam:SimulatePrincipalPolicy"]
+              Resource: "*"
+      RoleName: LambdaRole
+  AdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            AWS:
+              !Sub arn:aws:iam::${AWS::AccountId}:root
+          Action:
+            - "sts:AssumeRole"
+      RoleName: AdminRole
+  AdminRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Action:
+            - "ec2:*"
+            - "rds:*"
+            - "iam:CreatePolicy"
+            - "iam:CreatePolicyVersion"
+            - "iam:AttachUserPolicy"
+            - "iam:*"
+          Resource: "*"
+      Roles:
+        - !Ref AdminRole
+  DevRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            AWS:
+              !Sub arn:aws:iam::${AWS::AccountId}:root
+          Action:
+            - "sts:AssumeRole"
+      RoleName: DevRole
+  DevRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Action:
+            - "rds:*"
+            - "s3:*"
+            - "iam:PassRole"
+            - "ec2:RunInstances"
+          Resource: "*"
+          Condition:
+            StringEquals:
+              ec2:Region: "us-east-2"
+      Roles:
+        - !Ref DevRole
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: VPC
+          Value: 'DevOps '
+        - Key: Name
+          Value: CF Lab-6 Env
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: DevOps VPC IGW
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PUBSUBNET
+      MapPublicIpOnLaunch: 'true'
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Public Subnet
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Routing Table
+  PublicRouteIGW:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  CommandHostSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: AttachGateway
+    Properties:
+      GroupDescription: Security Group for CommandHost  to enable SSH and http access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Command Host SG
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+  ConfigSNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: ConfigSNSTopic
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: LogDeliveryWrite
+  ConfigBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref ConfigBucket
+      PolicyDocument:
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "s3:PutObject"
+            Resource:
+              !Sub arn:aws:s3:::${ConfigBucket}/AWSLogs/${AWS::AccountId}/*
+            Principal: "*"
+          - Effect: "Allow"
+            Action:
+              - "s3:GetBucketAcl"
+            Resource:
+              !Sub arn:aws:s3:::${ConfigBucket}
+            Principal: "*"
+  CommandHost:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - AttachGateway
+    Properties:
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap
+        - AmazonLinuxAMI
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref CommandHostInstProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: 'true'
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref CommandHostSecurityGroup
+      Tags:
+        - Key: Name
+          Value: CommandHost-lab2
+      UserData:
+        'Fn::Base64':
+          !Sub |
+            #!/bin/bash -ex
+            yum update -y
+            yum install -y aws-cli
+
+            mkdir /home/ec2-user/.aws
+            echo "[default]" > /home/ec2-user/.aws/config
+            echo "region = ${AWS::Region}" >> /home/ec2-user/.aws/config
+
+            curl -O https://${AWS::Region}-tcprod.s3.amazonaws.com/courses/ILT-TF-200-DEVOPS/v2.4.2/lab-2-DevSec/Lab-2-Resources.zip
+            unzip Lab-2-Resources.zip -d /home/ec2-user/
+
+            chmod 755 -R /home/ec2-user/*
+            chown ec2-user:ec2-user -R /home/ec2-user/*
+Outputs:
+  KeyPair:
+    Value: !Ref KeyName
+    Description: The Keypair Used to Secure the Command Host and the Source DB
+  CommandHost:
+    Value: !GetAtt CommandHost.PublicIp
+    Description: Public IP address of the Command Host
+  ConfigRoleARN:
+    Value: !GetAtt ConfigRole.Arn
+    Description: ARN for AWS Config to use
+  ConfigS3BucketName:
+    Value: !Ref ConfigBucket
+    Description: Bucket Name for AWS Config Logging
+  ConfigSNSTopic:
+    Value: !Ref ConfigSNSTopic
+    Description: ARN for AWS Config SNS Topic
+  LambdaRoleARN:
+    Value: !GetAtt LambdaRole.Arn
+    Description: ARN for Lambda to use
+  AccountNumber:
+    Value: !Ref AWS::AccountId
+    Description: Lab Account Number

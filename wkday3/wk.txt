@@ -1,0 +1,107 @@
+endpoint: myautomateserver-yj7c1ihywpqa6dqo.us-west-2.opsworks-cm.io
+password: qF7WkeuwMcDcxb3rlA
+
+
+
+
+myautomateserver-yj7c1ihywpqa6dqo
+
+cd ~/myautomateserver-yj7c1ihywpqa6dqo/cookbooks
+
+
+
+
+knife bootstrap $WebServerPrivateIp -N i-0cdfc7aec423098bd --ssh-user ec2-user \
+--sudo --identity-file ~/.ssh/$KeyName.pem --run-list 'recipe[simple_webapp],recipe[chef-client]'
+
+
+
+qls-2270749-4afc27690b23ba23
+
+
+aws cloudformation create-stack --stack-name AutoScaling --template-body file://lab-05-opsworks-v2.yaml \
+--parameters ParameterKey=KeyName,ParameterValue=$KeyName \
+ParameterKey=BaseStackName,ParameterValue=qls-2270749-4afc27690b23ba23 --capabilities CAPABILITY_NAMED_IAM
+
+AutoScaling-WebAppLaunchConfiguration-hal20190807
+
+
+
+
+
+
+
+
+
+
+
+
+aws cloudformation describe-stacks \
+--query 'Stacks[0].[Outputs[?OutputKey==`elbDNS`].[OutputKey,OutputValue], Outputs[?OutputKey==`Region`].[OutputKey,OutputValue], [`BaseStackName`,StackName]]' \
+--output table
+
+
+
+------------------------------------------------------------------------
+|                            DescribeStacks                            |
++---------------+------------------------------------------------------+
+|  elbDNS       |  MadLibAELB-1629966694.us-west-2.elb.amazonaws.com   |
+|  Region       |  us-west-2                                           |
+|  BaseStackName|  qls-2271464-e1f528ea897db3f3                        |
++---------------+------------------------------------------------------+
+
+
+
+
+
+
+cd ~/Code/WebSite
+docker build -t madlib/website --build-arg ELBDNS=MadLibAELB-1629966694.us-west-2.elb.amazonaws.com .
+
+
+
+
+
+
+-----------------------------------------------------------------------------------
+|                              DescribeRepositories                               |
++----------------+----------------------------------------------------------------+
+|  madlib/api    |  628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/api       |
+|  madlib/save   |  628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/save      |
+|  madlib/website|  628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/website   |
++----------------+----------------------------------------------------------------+
+
+docker tag madlib/website:latest 628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/website:latest
+docker tag madlib/api:latest 628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/api:latest
+docker tag madlib/save:latest 628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/save:latest
+
+
+
+
+docker push  628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/website:latest
+docker push  628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/api:latest
+docker push  628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/save:latest
+
+
+
+aws cloudformation create-stack --stack-name MadLib-ECS-Deploy --template-body file://~/ECS-MadLib-Deploy.yaml \
+--parameters \
+ParameterKey=BaseStack,\
+ParameterValue="qls-2271464-e1f528ea897db3f3" \
+ParameterKey=ECRsaveURIPram,\
+ParameterValue="628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/save" \
+ParameterKey=ECRapiURIPram,\
+ParameterValue="628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/api" \
+ParameterKey=ECRsiteURIPram,\
+ParameterValue="628405585836.dkr.ecr.us-west-2.amazonaws.com/madlib/website"
+
+
+
+
+
+aws cloudformation wait stack-create-complete --stack-name MadLib-ECS-Deploy
+aws cloudformation describe-stacks --query 'Stacks[0].[Outputs[?OutputKey==`elbDNS`].[`ELB DNS Name`,OutputValue]]' --output table
+
+
+
+

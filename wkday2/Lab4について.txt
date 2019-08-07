@@ -1,0 +1,1 @@
+※注意! lab4はシンプルの為、カット。codestar立ち上げ、ec2からrepositryにssh接続。コード編集だけ

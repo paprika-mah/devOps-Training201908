@@ -1,0 +1,98 @@
+CommandHost	13.230.101.188
+KeyPair	qwikLABS-L4465-2267719
+PubSubA	subnet-07550c7073ff26217
+PubSubB	subnet-0d1cce478418a3147
+Region	ap-northeast-1
+VPCId	vpc-040ef484fe3259193
+
+
+
+
+
+aws cloudformation create-stack --stack-name App-Tier \
+--template-body file://App_Tier.yaml \
+--parameters \
+ParameterKey=NetworkStackName,\
+ParameterValue="network" \
+ParameterKey=DBStackName,\
+ParameterValue="DB-tier" \
+ParameterKey=KeyName,\
+ParameterValue="qwikLABS-L4465-2267719" \
+ParameterKey=S3PathPrefix,\
+ParameterValue="courses/ILT-TF-200-DEVOPS/v2.3.0/lab-3-CloudFormation"\
+ --capabilities CAPABILITY_NAMED_IAM \
+ --disable-rollback
+
+
+
+
+
+ƒCƒ“ƒXƒ^ƒ“ƒX ID
+i-0aa8f99bc2bfeabb3
+
+
+
+aws cloudformation update-stack --stack-name App-Tier \
+--template-body file://App_Tier_Task3.yaml \
+--parameters \
+ParameterKey=NetworkStackName,\
+ParameterValue="network" \
+ParameterKey=DBStackName,\
+ParameterValue="DB-tier" \
+ParameterKey=KeyName,\
+ParameterValue="qwikLABS-L4465-2267719" \
+ParameterKey=S3PathPrefix,\
+ParameterValue="courses/ILT-TF-200-DEVOPS/v2.3.0/lab-3-CloudFormation" \
+--capabilities CAPABILITY_NAMED_IAM
+
+
+
+
+
+
+
+aws cloudformation update-stack --stack-name App-Tier \
+--template-body file://App_Tier_Task4.yaml \
+--parameters \
+ParameterKey=NetworkStackName,\
+ParameterValue="network" \
+ParameterKey=DBStackName,\
+ParameterValue="DB-tier" \
+ParameterKey=KeyName,\
+ParameterValue="qwikLABS-L4465-2267719" \
+ParameterKey=S3PathPrefix,\
+ParameterValue="courses/ILT-TF-200-DEVOPS/v2.3.0/lab-3-CloudFormation" \
+--capabilities CAPABILITY_NAMED_IAM
+
+
+
+
+
+aws cloudformation update-stack --stack-name App-Tier €
+--template-body file://App_Tier_Task4.yaml €
+--parameters €
+ParameterKey=NetworkStackName,€
+ParameterValue="network" €
+ParameterKey=DBStackName,€
+ParameterValue="DB-tier" €
+ParameterKey=KeyName,€
+ParameterValue="temp" €
+ParameterKey=S3PathPrefix,€
+ParameterValue="courses/ILT-TF-200-DEVOPS/v2.3.0/lab-3-CloudFormation" €
+--capabilities CAPABILITY_NAMED_IAM
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

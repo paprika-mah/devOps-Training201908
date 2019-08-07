@@ -1,0 +1,33 @@
+[mod7]
+
+OSのメモリ、ディスク使用量とかはカスタムメトリクス。
+カオスエンジニアリング
+
+[mod9]
+
+
+packer APIを叩いて処理して自動～みたいなのをjsonで宣言して自動化。
+by HashiCOrp
+
+
+system Manager
+SSMagent入れてもEC2がVPCの外のSSMにAPI経由でアクセスできるように
+VPCエンドポイントかIGWもひつようよ。あとiamroleも
+
+
+
+docker
+Docker hubからとってくるか、URI(一意)で指定よね
+
+
+https://logmi.jp/tech/articles/321479
+
+https://pages.awscloud.com/rs/112-TZM-766/images/H3-02.pdf
+
+
+
+
+mainリンク！！！
+https://devops.nijot.org/
+https://aws.qwiklabs.com/my_learning
+aws-jp-training+367@amazon.com

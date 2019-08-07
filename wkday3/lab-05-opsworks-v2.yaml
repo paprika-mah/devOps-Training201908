@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'DevOps Engineering on AWS - Lab 5: Second stack to introduce Auto Scaled instances.'
+Parameters:
+  BaseStackName:
+    Description: The name of the stack created by Qwiklabs.
+    Type: String
+  KeyName:
+    Description: The SSH keypair that will be used for remote access to this instance.
+    Type: AWS::EC2::KeyPair::KeyName
+Mappings:
+  RegionMap:
+    ## Updated May 3rd, 2017
+    'ca-central-1':
+      AMI: 'ami-0bd66a6f'
+    'us-east-1':
+      AMI: 'ami-c58c1dd3'
+    'us-east-2':
+      AMI: 'ami-4191b524'
+    'us-west-1':
+      AMI: 'ami-7a85a01a'
+    'us-west-2':
+      AMI: 'ami-4836a428'
+    'ap-south-1':
+      AMI: 'ami-52c7b43d'
+    'eu-west-2':
+      AMI: 'ami-b6daced2'
+    'eu-west-1':
+      AMI: 'ami-01ccc867'
+    'ap-northeast-2':
+      AMI: 'ami-9d15c7f3'
+    'ap-northeast-1':
+      AMI: 'ami-923d12f5'
+    'sa-east-1':
+      AMI: 'ami-37cfad5b'
+    'ap-southeast-1':
+      AMI: 'ami-fc5ae39f'
+    'ap-southeast-2':
+      AMI: 'ami-162c2575'
+    'eu-central-1':
+      AMI: 'ami-b968bad6'
+Resources:
+
+#########################################################
+# Role and Instance profile to self-register with Chef
+# server.
+
+  AssociateNodeIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName: OpsWorksAssociate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - "opsworks-cm:AssociateNode"
+                  - "opsworks-cm:DescribeNodeAssociationStatus"
+                Resource: "*"
+
+  AssociateNodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: AssociateNodeIAMRole
+
+###############################################################
+#  Launch configuration and AutoScaling group
+#  that will be used for the WebServers
+
+  WebAppLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: "t2.micro"
+      SecurityGroups:
+        - Fn::ImportValue: !Sub ${BaseStackName}-WebServerSecurityGroup
+      IamInstanceProfile:
+        !Ref AssociateNodeInstanceProfile
+  ChefConfiguredAutoScalingGroup:
+    DependsOn: "WebAppLaunchConfiguration"
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MaxSize: 10
+      DesiredCapacity: 0
+      MinSize: 0
+      LaunchConfigurationName:
+        Ref: WebAppLaunchConfiguration
+      LoadBalancerNames:
+        - Fn::ImportValue: !Sub ${BaseStackName}-WebAppELB
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub ${BaseStackName}-PrivateSubnet1
+        - Fn::ImportValue: !Sub ${BaseStackName}-PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: ChefManagedWebNode
+          PropagateAtLaunch: true

@@ -1,0 +1,572 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template to build the base for DevOps Lab-6 ECS
+Parameters:
+  VPCCIDR:
+    Description: CIDR Block for VPC
+    Type: String
+    Default: 10.96.10.0/16
+  PUBSUBNET1:
+    Description: Public Subnet A
+    Type: String
+    Default: 10.96.10.0/24
+  PUBSUBNET2:
+    Description: Public Subnet B
+    Type: String
+    Default: 10.96.15.0/24
+  KeyName:
+    Type: String
+    Description: Keyname for the keypair that Qwiklab will use to launch EC2 instances
+    Default: CA-Dev_key
+  QwiklabLocale:
+    Default: en
+    Description: >-
+      The locale of the student will be passed in to this parameter via the
+      Qwiklab platform (via the student's browser)
+    Type: String
+  S3PathPrefix:
+    Type: String
+    Description: "The path prefix where lab resources are stored (Leading and trailing slash required!)"
+    Default: "courses/ILT-TF-200-DEVOPS/v2.4.2/lab-6-ECS"
+  TableName:
+    Type: String
+    Description: Name for the Nouns/Verbs/Adjectives DynDB Table
+    Default: nouns_verbs_and_adjectives
+Mappings:
+  AmazonLinuxAMI:
+    us-east-1:
+      AMI: ami-08111162
+    us-east-2:
+      AMI: ami-06547163
+    us-west-1:
+      AMI: ami-1b0f7d7b
+    us-west-2:
+      AMI: ami-f0091d91
+    eu-west-1:
+      AMI: ami-31328842
+    eu-central-1:
+      AMI: ami-e2df388d
+    ap-northeast-1:
+      AMI: ami-f80e0596
+    ap-northeast-2:
+      AMI: ami-6598510b
+    ap-southeast-1:
+      AMI: ami-c9b572aa
+    ap-southeast-2:
+      AMI: ami-f2210191
+    sa-east-1:
+      AMI: ami-1e159872
+Resources:
+  CommandHostInstProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'CommandHostRole']
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
+              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
+              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
+            Resource: '*'
+  CommandHostRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: lab-6-commandhost
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['ecs:*',
+                     'ecr:*',
+                     'elasticloadbalancing:*',
+                     'cloudformation:*',
+                     'iam:PassRole']
+            Resource: '*'
+  NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'NodeRole']
+  NodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['ecs:CreateCluster', 'ecs:DeregisterContainerInstance', 'ecs:DiscoverPollEndpoint',
+              'ecs:Poll', 'ecs:RegisterContainerInstance', 'ecs:StartTelemetrySession',
+              'ecs:Submit*', 'logs:CreateLogStream', 'logs:PutLogEvents', 'ecr:*']
+            Resource: '*'
+  AppRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - 'ecs-tasks.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+
+      Path: '/'
+      Policies:
+        - PolicyName: MabLib-save-task-policy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action: ['dynamodb:DescribeLimits',
+                  'dynamodb:DescribeReservedCapacity',
+                  'dynamodb:DescribeReservedCapacityOfferings',
+                  'dynamodb:DescribeTable',
+                  'dynamodb:GetItem',
+                  'dynamodb:GetRecords',
+                  'dynamodb:ListTables',
+                  'dynamodb:PutItem',
+                  'dynamodb:Query',
+                  'dynamodb:Scan',
+                  'dynamodb:UpdateItem']
+              Resource:
+                !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynDBTable}
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: VPC
+          Value: 'DevOps '
+        - Key: Name
+          Value: CF Lab-6 Env
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    DependsOn: VPC
+    Properties:
+      Tags:
+        - Key: Name
+          Value: DevOps VPC IGW
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    DependsOn:
+      - VPC
+      - InternetGateway
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  NatGWEIP:
+    Type: 'AWS::EC2::EIP'
+    DependsOn: VPC
+    Properties:
+      Domain: VPC
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PUBSUBNET1
+      MapPublicIpOnLaunch: 'true'
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Public Subnet - A
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    DependsOn: VPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PUBSUBNET2
+      MapPublicIpOnLaunch: 'true'
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Public Subnet - B
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    DependsOn:
+      - VPC
+      - AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Routing Table
+  PublicRouteIGW:
+    Type: 'AWS::EC2::Route'
+    DependsOn:
+      - PublicRouteTable
+      - InternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicRouteTableAssociationA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn:
+      - PublicSubnet1
+      - PublicRouteIGW
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  PublicRouteTableAssociationB:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn:
+      - PublicSubnet2
+      - PublicRouteIGW
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+    # ALB Target Groups Routing Requests to the Containers
+  AppLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn:
+      - InternetGateway
+      - AttachGateway
+    Properties:
+      Name: MadLibAELB
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: '30'
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ClusterSG
+  WebSiteTG:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+    #  HealthCheckPort: 80
+    #  HealthCheckProtocol: HTTP
+    #  HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      Name: WebSiteTG80
+      Port: '80'
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "WebSite-TG-80"
+  apiTG:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /get_random_word/
+    #  HealthCheckPort: 81
+    #  HealthCheckProtocol: HTTP
+    #  HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '404'
+      Name: apiTG81
+      Port: '81'
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "api-TG-81"
+  saveTG:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /save_paragraph/
+  #    HealthCheckPort: 82
+  #    HealthCheckProtocol: HTTP
+  #    HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '404'
+      Name: saveTG82
+      Port: '82'
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "save-TG-82"
+  CommandHostSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: AttachGateway
+    Properties:
+      GroupDescription: Security Group for CommandHost  to enable SSH and http access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Command Host SG
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+  # Security Groups
+  ClusterSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MadLib ECS Cluster Security Group
+      VpcId: !Ref 'VPC'
+  ClusterSGHTTPinbound:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClusterSG
+      IpProtocol: tcp
+      FromPort: '80'
+      ToPort: '80'
+      CidrIp: 0.0.0.0/0
+  ClusterSGSSHinbound:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClusterSG
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      CidrIp: 0.0.0.0/0
+  ClusterSGALBports:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClusterSG
+      IpProtocol: tcp
+      FromPort: '31000'
+      ToPort: '61000'
+      SourceSecurityGroupId: !Ref ClusterSG
+  staticSGALBports:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClusterSG
+      IpProtocol: tcp
+      FromPort: '80'
+      ToPort: '82'
+      SourceSecurityGroupId: !Ref ClusterSG
+
+  DynDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "guid_str"
+          AttributeType: "S"
+        - AttributeName: "paragraph_html_str"
+          AttributeType: "S"
+      KeySchema:
+         - AttributeName: "guid_str"
+           KeyType: "HASH"
+         - AttributeName: "paragraph_html_str"
+           KeyType: "RANGE"
+      ProvisionedThroughput:
+          ReadCapacityUnits: "5"
+          WriteCapacityUnits: "5"
+      TableName: !Ref TableName
+  CommandHost:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - PublicSubnet1
+      - VPC
+      - CommandHostSecurityGroup
+    Properties:
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap
+        - AmazonLinuxAMI
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref CommandHostInstProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: 'true'
+          SubnetId: !Ref PublicSubnet1
+          GroupSet:
+            - !Ref CommandHostSecurityGroup
+      Tags:
+        - Key: Name
+          Value: CommandHost-lab6
+      UserData:
+        'Fn::Base64':
+          !Sub |
+            #!/bin/bash -ex
+            yum update -y
+            yum install -y aws-cli
+            yum install -y docker git
+            usermod -a -G docker ec2-user
+            service docker start
+
+            mkdir /home/ec2-user/.aws
+            echo "[default]" > /home/ec2-user/.aws/config
+            echo "region = ${AWS::Region}" >> /home/ec2-user/.aws/config
+
+            curl -O https://${AWS::Region}-tcprod.s3.amazonaws.com/${S3PathPrefix}/Lab-6-Resources.zip
+            unzip Lab-6-Resources.zip -d /home/ec2-user/
+
+            chmod 755 -R /home/ec2-user/*
+            chown ec2-user:ec2-user -R /home/ec2-user/*
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: MadLib-Cluster-lab6
+  ClusterAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: 'true'
+    Properties:
+      TargetGroupARNs:
+        - !Ref WebSiteTG
+        - !Ref apiTG
+        - !Ref saveTG
+      VPCZoneIdentifier:
+        - !Ref 'PublicSubnet1'
+        - !Ref 'PublicSubnet2'
+      LaunchConfigurationName: !Ref 'ClusterNodes'
+      MinSize: '1'
+      MaxSize: 2
+      DesiredCapacity: 1
+      Tags:
+       - Key: "Name"
+         Value: "ECS Cluster Node - AutoScaled"
+         PropagateAtLaunch: true
+       - Key: "ENV"
+         Value: "Production"
+         PropagateAtLaunch: true
+       - Key: "App"
+         Value: "DevOps - Lab 6"
+         PropagateAtLaunch: true
+  ClusterNodes:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [AmazonLinuxAMI, !Ref 'AWS::Region', AMI]
+      SecurityGroups: [!Ref 'ClusterSG']
+      InstanceType: m3.xlarge
+      IamInstanceProfile: !Ref 'NodeInstanceProfile'
+      KeyName: !Ref 'KeyName'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+
+          yum install -y ecs-init
+          yum install -y aws-cfn-bootstrap
+
+          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+
+          service docker start
+          start ecs
+
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ClusterAutoScalingGroup --region ${AWS::Region}
+
+Outputs:
+  KeyPair:
+    Value: !Ref KeyName
+    Description: The Keypair Used to Secure the Command Host and the Source DB
+  CommandHost:
+    Value: !GetAtt CommandHost.PublicIp
+    Description: Public IP address of the Command Host
+  Region:
+    Value: !Ref 'AWS::Region'
+    Description: Region used for the lab
+  VPCId:
+    Value: !Ref VPC
+    Description: VPC Resource ID
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCID'
+  PubSubA:
+    Value: !Ref PublicSubnet1
+    Description: 'Public Subnet A Resource ID '
+    Export:
+      Name: !Sub '${AWS::StackName}-PUBSUB-A'
+  PubSubB:
+    Value: !Ref PublicSubnet2
+    Description: 'Public Subnet B Resource ID '
+    Export:
+      Name: !Sub '${AWS::StackName}-PUBSUB-B'
+  ClusterSG:
+    Description: The Security Group on the ECS Cluster
+    Value: !Ref ClusterSG
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterSG'
+  Cluster:
+    Description: Resource ID of the ECS Cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-Cluster'
+  siteTargetGroup:
+    Description: Resource ID for the WebSite ALB TargetGroupARNs
+    Value: !Ref WebSiteTG
+    Export:
+      Name: !Sub '${AWS::StackName}-siteTG'
+  apiTargetGroup:
+    Description: Resource ID for the API ALB TargetGroupARNs
+    Value: !Ref apiTG
+    Export:
+      Name: !Sub '${AWS::StackName}-apiTG'
+  saveTargetGroup:
+    Description: Resource ID for the Save ALB TargetGroupARNs
+    Value: !Ref saveTG
+    Export:
+      Name: !Sub '${AWS::StackName}-saveTG'
+  elbRef:
+    Description: Resource ID for the ALB for MadLib
+    Value: !Ref AppLoadBalancer
+    Export:
+      Name: !Sub '${AWS::StackName}-elbRef'
+  elbDNS:
+    Description: The Public DNS name for the ALB infront of the ECS Cluster
+    Value: !GetAtt AppLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-ELBDNS'
+  saveAppRole:
+    Description: Export Resource ID for The role the task will assume
+    Value: !Ref AppRole
+    Export:
+      Name: !Sub '${AWS::StackName}-AppRole'
