@@ -5,3 +5,7 @@ https://devops.nijot.org/
 
 https://aws.qwiklabs.com/my_learning
 aws-jp-training+367@amazon.com
+
+
+Ql‚·‚Ø‚µ‚á‚é paypay‚Ì˜b
+https://pages.awscloud.com/rs/112-TZM-766/images/H3-02.pdf
