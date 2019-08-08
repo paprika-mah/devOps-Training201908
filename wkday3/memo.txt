@@ -20,14 +20,7 @@ docker
 Docker hubからとってくるか、URI(一意)で指定よね
 
 
-https://logmi.jp/tech/articles/321479
-
-https://pages.awscloud.com/rs/112-TZM-766/images/H3-02.pdf
 
 
 
 
-mainリンク！！！
-https://devops.nijot.org/
-https://aws.qwiklabs.com/my_learning
-aws-jp-training+367@amazon.com

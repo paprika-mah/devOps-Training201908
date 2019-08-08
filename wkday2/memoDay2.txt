@@ -42,7 +42,6 @@ tasl3 todo4
 cfn-hup を実行。　cfn-hupはcfn-auto-reloader.confを参照して実行？
 
 module6
-# git hook
 
 codepipelineでアカウントなどまたぐ場合
 クロスリージョン/クロスアカウントでパイプライン
